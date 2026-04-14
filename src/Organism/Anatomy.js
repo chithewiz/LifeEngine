@@ -12,7 +12,7 @@ class Anatomy {
     clear() {
         this.cells = [];
         this.is_producer = false;
-        this.is_mover = false;
+        this.is_mover = false; //maybe change this later
         this.has_eyes = false;
     }
 

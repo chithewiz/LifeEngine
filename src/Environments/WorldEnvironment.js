@@ -153,11 +153,16 @@ class WorldEnvironment extends Environment{
     }
 
     reset(confirm_reset=true, reset_life=true) {
-        if (confirm_reset && !confirm('The current environment will be lost. Proceed?'))
+        if (confirm_reset && !confirm('Generate 3 islands?'))
             return false;
 
         this.organisms = [];
-        this.grid_map.fillGrid(CellStates.empty, !WorldConfig.clear_walls_on_reset);
+        this.walls = [];
+        
+        this.resizeFillWindow(Hyperparams.cell_size || 8);
+
+        this.generateThreeCircularIslands(); //generate islands
+
         this.renderer.renderFullGrid(this.grid_map.grid);
         this.total_mutability = 0;
         this.total_ticks = 0;
@@ -237,7 +242,85 @@ class WorldEnvironment extends Environment{
             Hyperparams.loadJsonObj(env.controls)
         this.renderer.renderFullGrid(this.grid_map.grid);
     }
-}
 
+    generateThreeCircularIslands() {
+        this.clearWalls();
+
+        // 1. Fill everything with the "Sea" (Wall cells)
+        for (let c = 0; c < this.num_cols; c++) {
+            for (let r = 0; r < this.num_rows; r++) {
+                this.changeCell(c, r, CellStates.wall, null);
+            }
+        }
+
+        // 2. Determine positioning for 3 islands
+        // We split the screen width into 3 sections and place an island in the center of each
+        const sectionWidth = Math.floor(this.num_cols / 3);
+        const centerY = Math.floor(this.num_rows / 2);
+        
+        // Base radius: adjust this to make islands larger or smaller
+        // Using 1/3 of the section width as a safe maximum radius
+        const baseRadius = Math.floor(sectionWidth / 3.5);
+
+        const islandCenters = [
+            { x: Math.floor(sectionWidth * 0.5), y: centerY }, // Left
+            { x: Math.floor(sectionWidth * 1.5), y: centerY }, // Middle
+            { x: Math.floor(sectionWidth * 2.5), y: centerY }  // Right
+        ];
+
+        // 3. Carve the circles
+        for (let center of islandCenters) {
+            // Randomize radius slightly for each island so they aren't identical
+            let currentIslandRadius = baseRadius + (Math.random() * 4 - 2);
+
+            // We iterate through a bounding box around the center for efficiency
+            for (let c = center.x - currentIslandRadius - 2; c <= center.x + currentIslandRadius + 2; c++) {
+                for (let r = center.y - currentIslandRadius - 2; r <= center.y + currentIslandRadius + 2; r++) {
+                    
+                    // Boundary check to prevent errors at screen edges
+                    if (c >= 0 && c < this.num_cols && r >= 0 && r < this.num_rows) {
+                        let dx = c - center.x;
+                        let dy = r - center.y;
+                        let distance = Math.sqrt(dx * dx + dy * dy);
+
+                        // Add a small 'noise' factor to make edges look organic
+                        let organicEdge = distance + (Math.random() * 1.5);
+
+                        if (organicEdge < currentIslandRadius) {
+                            // Convert Wall back to Land (Empty)
+                            this.changeCell(c, r, CellStates.empty, null);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    OriginOfLife() {
+        let spawnPos = null;
+        
+        // Find a random 'empty' cell (land)
+        let attempts = 0;
+        while (!spawnPos && attempts < 1000) {
+            let c = Math.floor(Math.random() * this.grid_map.cols);
+            let r = Math.floor(Math.random() * this.grid_map.rows);
+            if (this.grid_map.cellAt(c, r).state === CellStates.empty) {
+                spawnPos = [c, r];
+            }
+            attempts++;
+        }
+
+        // Fallback to center if no land found
+        if (!spawnPos) spawnPos = this.grid_map.getCenter();
+
+        var org = new Organism(spawnPos[0], spawnPos[1], this);
+        org.anatomy.addDefaultCell(CellStates.mouth, 0, 0);
+        org.anatomy.addDefaultCell(CellStates.producer, 1, 1);
+        org.anatomy.addDefaultCell(CellStates.producer, -1, -1);
+        this.addOrganism(org);
+        FossilRecord.addSpecies(org, null);
+    }
+
+}
 module.exports = WorldEnvironment;
 
