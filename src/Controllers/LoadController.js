@@ -45,16 +45,20 @@ const LoadController = {
         this.loadList('organisms');
         this.loadList('mods');
     },
-
+    
     async loadList(name) {
         const base = `./assets/${name}/`;
 
         let list = [];
         try {
             let resp = await fetch(base+'_list.json');
+        if (!resp.ok){
+            throw new Error(`HTTPerror! status: ${resp.status}`);
+            }
             list = await resp.json();
+            console.error(`Loaded ${name} list:`, list);
         } catch(e) {
-            console.error('Failed to load list: ', e);
+            console.error('Failed to load ${name} list: ', e);
         }
         
         let id = `#${name}-list`
@@ -101,7 +105,19 @@ const LoadController = {
         $('#upload-json').off('change');
     }
 }
-
+    fetch('assets/worlds/_list.json')
+        .then(response => {
+            if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response.json();
+})
+.then(data => {
+    console.log("Loaded data:", data);
+})
+.catch(error => {
+    console.error("Failed to fetch data:", error);
+});
 $(document).ready(() => {
     LoadController.init();
 });

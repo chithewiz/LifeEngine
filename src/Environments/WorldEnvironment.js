@@ -10,16 +10,28 @@ const WorldConfig = require('../WorldConfig');
 const SerializeHelper = require('../Utils/SerializeHelper');
 const Species = require('../Stats/Species');
 
-class WorldEnvironment extends Environment{
+class WorldEnvironment extends Environment {
     constructor(cell_size) {
         super();
         this.renderer = new Renderer('env-canvas', 'env', cell_size);
         this.controller = new EnvironmentController(this, this.renderer.canvas);
         this.num_rows = Math.ceil(this.renderer.height / cell_size);
         this.num_cols = Math.ceil(this.renderer.width / cell_size);
+
+        this.num_cols = 650;
+        this.num_rows = 700;
+
         this.grid_map = new GridMap(this.num_cols, this.num_rows, cell_size);
+        this.walls = []; //ensure walls are initialized as an empty array
+        //to check 
+        console.log('Grid state after generating islands:', this.grid_map.grid);
+
+        this.renderer.renderFullGrid(this.grid_map.grid);
+
+        // to debug
+        console.log("Rendering the grid...");
+
         this.organisms = [];
-        this.walls = [];
         this.total_mutability = 0;
         this.largest_cell_count = 0;
         this.reset_count = 0;
@@ -28,21 +40,13 @@ class WorldEnvironment extends Environment{
         FossilRecord.setEnv(this);
     }
 
-    update() {
-        var to_remove = [];
-        for (var i in this.organisms) {
-            var org = this.organisms[i];
-            if (!org.living || !org.update()) {
-                to_remove.push(i);
-            }
-        }
-        this.removeOrganisms(to_remove);
-        if (Hyperparams.foodDropProb > 0) {
-            this.generateFood();
-        }
-        this.total_ticks ++;
-        if (this.total_ticks % this.data_update_rate == 0) {
-            FossilRecord.updateData();
+    update(delta_time) {
+        this.flyCell.col += (this.flyCell.targetCol - this.flyCell.col) * 0.01;
+        this.flyCell.row += (this.flyCell.targetRow - this.flyCell.row) * 0.01;
+
+        if (Math.abs(this.flyCell.col - this.flyCell.targetCol) < 1) {
+            [this.flyCell.targetCol, this.flyCell.col] = [this.flyCell.col, this.flyCell.targetCol];
+            [this.flyCell.targetRow, this.flyCell.row] = [this.flyCell.row, this.flyCell.targetRow];
         }
     }
 
@@ -61,35 +65,45 @@ class WorldEnvironment extends Environment{
 
     removeOrganisms(org_indeces) {
         let start_pop = this.organisms.length;
-        for (var i of org_indeces.reverse()){
+        for (var i of org_indeces.reverse()) {
             this.total_mutability -= this.organisms[i].mutability;
             this.organisms.splice(i, 1);
         }
         if (this.organisms.length === 0 && start_pop > 0) {
             if (WorldConfig.auto_pause)
                 $('.pause-button')[0].click();
-            else if(WorldConfig.auto_reset) {
+            else if (WorldConfig.auto_reset) {
                 this.reset_count++;
                 this.reset(false);
             }
         }
     }
 
-    OriginOfLife() {
-        var center = this.grid_map.getCenter();
-        var org = new Organism(center[0], center[1], this);
-        org.anatomy.addDefaultCell(CellStates.mouth, 0, 0);
-        org.anatomy.addDefaultCell(CellStates.producer, 1, 1);
-        org.anatomy.addDefaultCell(CellStates.producer, -1, -1);
-        this.addOrganism(org);
-        FossilRecord.addSpecies(org, null);
-    }
+    OriginOfLife(center_pos) {
+    const cols = 200;
+    const rows = 200;
+
+    // Initialize the grid_map with the desired dimensions and cell size
+    this.grid_map = new GridMap(cols, rows, 5);
+
+    // Generate two islands on the grid
+    this.generateTwoIslands();
+
+    // Initialize the flyCell object
+    this.flyCell = {
+        col: 50,
+        row: 50,
+        targetCol: 150,
+        targetRow: 150,
+        speed: 0.5
+    };
+}
 
     addOrganism(organism) {
         organism.updateGrid();
         this.total_mutability += organism.mutability;
         this.organisms.push(organism);
-        if (organism.anatomy.cells.length > this.largest_cell_count) 
+        if (organism.anatomy.cells.length > this.largest_cell_count)
             this.largest_cell_count = organism.anatomy.cells.length;
     }
 
@@ -109,16 +123,22 @@ class WorldEnvironment extends Environment{
     changeCell(c, r, state, owner) {
         super.changeCell(c, r, state, owner);
         this.renderer.addToRender(this.grid_map.cellAt(c, r));
-        if(state == CellStates.wall)
+        if (state == CellStates.wall)
             this.walls.push(this.grid_map.cellAt(c, r));
     }
 
     clearWalls() {
-        for(var wall of this.walls){
+        if (!Array.isArray(this.walls)) {
+            console.warn("this.walls was not initialized properly. Resetting to an empty array.");
+            this.walls = [];
+        }
+
+        for (var wall of this.walls) {
             let wcell = this.grid_map.cellAt(wall.col, wall.row);
             if (wcell && wcell.state == CellStates.wall)
                 this.changeCell(wall.col, wall.row, CellStates.empty, null);
         }
+        this.walls = [];
     }
 
     clearOrganisms() {
@@ -126,7 +146,7 @@ class WorldEnvironment extends Environment{
             org.die();
         this.organisms = [];
     }
-    
+
     clearDeadOrganisms() {
         let to_remove = [];
         for (let i in this.organisms) {
@@ -138,43 +158,48 @@ class WorldEnvironment extends Environment{
     }
 
     generateFood() {
-        var num_food = Math.max(Math.floor(this.grid_map.cols*this.grid_map.rows*Hyperparams.foodDropProb/50000), 1)
+        var num_food = Math.max(Math.floor(this.grid_map.cols * this.grid_map.rows * Hyperparams.foodDropProb / 50000), 1)
         var prob = Hyperparams.foodDropProb;
-        for (var i=0; i<num_food; i++) {
-            if (Math.random() <= prob){
-                var c=Math.floor(Math.random() * this.grid_map.cols);
-                var r=Math.floor(Math.random() * this.grid_map.rows);
+        for (var i = 0; i < num_food; i++) {
+            if (Math.random() <= prob) {
+                var c = Math.floor(Math.random() * this.grid_map.cols);
+                var r = Math.floor(Math.random() * this.grid_map.rows);
 
-                if (this.grid_map.cellAt(c, r).state == CellStates.empty){
+                if (this.grid_map.cellAt(c, r).state == CellStates.empty) {
                     this.changeCell(c, r, CellStates.food, null);
                 }
             }
         }
     }
 
-    reset(confirm_reset=true, reset_life=true) {
-        if (confirm_reset && !confirm('Generate 3 islands?'))
+    reset(confirm_reset = true, reset_life = true) {
+        if (confirm_reset && !confirm('Generate 2 separate islands?'))
             return false;
 
         this.organisms = [];
         this.walls = [];
-        
+
         this.resizeFillWindow(Hyperparams.cell_size || 8);
 
-        this.generateThreeCircularIslands(); //generate islands
+        this.generateTwoIslands(); //generate islands
 
         this.renderer.renderFullGrid(this.grid_map.grid);
         this.total_mutability = 0;
         this.total_ticks = 0;
         FossilRecord.clear_record();
-        if (reset_life)
-            this.OriginOfLife();
+        if (reset_life) {
+            if (this.islandCenters) {
+                for (let center of this.islandCenters) this.OriginOfLife(center);
+            } else {
+                this.OriginOfLife();
+            }
+        }
         return true;
     }
 
     resizeGridColRow(cell_size, cols, rows) {
         this.renderer.cell_size = cell_size;
-        this.renderer.fillShape(rows*cell_size, cols*cell_size);
+        this.renderer.fillShape(rows * cell_size, cols * cell_size);
         this.grid_map.resize(cols, rows, cell_size);
     }
 
@@ -191,7 +216,7 @@ class WorldEnvironment extends Environment{
         let env = SerializeHelper.copyNonObjects(this);
         env.grid = this.grid_map.serialize();
         env.organisms = [];
-        for (let org of this.organisms){
+        for (let org of this.organisms) {
             env.organisms.push(org.serialize());
         }
         env.fossil_record = FossilRecord.serialize();
@@ -222,7 +247,7 @@ class WorldEnvironment extends Environment{
             org.loadRaw(orgRaw);
             this.addOrganism(org);
             let s = species[orgRaw.species_name];
-            if (!s){ // ideally, every organisms species should exists, but there is a bug that misses some species sometimes
+            if (!s) { // ideally, every organisms species should exists, but there is a bug that misses some species sometimes
                 s = new Species(org.anatomy, null, env.total_ticks);
                 species[orgRaw.species_name] = s;
             }
@@ -243,84 +268,59 @@ class WorldEnvironment extends Environment{
         this.renderer.renderFullGrid(this.grid_map.grid);
     }
 
-    generateThreeCircularIslands() {
+    generateTwoIslands() {
         this.clearWalls();
-
-        // 1. Fill everything with the "Sea" (Wall cells)
+    
+        // Fill the map with "Sea" (walls)
         for (let c = 0; c < this.num_cols; c++) {
             for (let r = 0; r < this.num_rows; r++) {
                 this.changeCell(c, r, CellStates.wall, null);
             }
         }
-
-        // 2. Determine positioning for 3 islands
-        // We split the screen width into 3 sections and place an island in the center of each
-        const sectionWidth = Math.floor(this.num_cols / 3);
-        const centerY = Math.floor(this.num_rows / 2);
-        
-        // Base radius: adjust this to make islands larger or smaller
-        // Using 1/3 of the section width as a safe maximum radius
-        const baseRadius = Math.floor(sectionWidth / 3.5);
-
-        const islandCenters = [
-            { x: Math.floor(sectionWidth * 0.5), y: centerY }, // Left
-            { x: Math.floor(sectionWidth * 1.5), y: centerY }, // Middle
-            { x: Math.floor(sectionWidth * 2.5), y: centerY }  // Right
-        ];
-
-        // 3. Carve the circles
+    
+        let isPortrait = this.num_rows > this.num_cols;
+        let radius, islandCenters;
+    
+        if (isPortrait) {
+            radius = Math.floor(this.num_cols * 0.4);
+            islandCenters = [
+                [Math.floor(this.num_cols * 0.5), Math.floor(this.num_rows * 0.22)],
+                [Math.floor(this.num_cols * 0.5), Math.floor(this.num_rows * 0.78)]
+            ];
+        } else {
+            radius = Math.floor(this.num_rows * 0.4);
+            islandCenters = [
+                [Math.floor(this.num_cols * 0.22), Math.floor(this.num_rows * 0.5)],
+                [Math.floor(this.num_cols * 0.78), Math.floor(this.num_rows * 0.5)]
+            ];
+        }
+    
         for (let center of islandCenters) {
-            // Randomize radius slightly for each island so they aren't identical
-            let currentIslandRadius = baseRadius + (Math.random() * 4 - 2);
+            console.log("Creating island at center:", center);
+            if (center[0] !== null && center[1] !== null) {
+                this.grid_map.createIsland(center[0], center[1], radius, CellStates.land);
+            } else {
+                console.warn("Invalid island center:", center);
+            }
+        }
+    }
 
-            // We iterate through a bounding box around the center for efficiency
-            for (let c = center.x - currentIslandRadius - 2; c <= center.x + currentIslandRadius + 2; c++) {
-                for (let r = center.y - currentIslandRadius - 2; r <= center.y + currentIslandRadius + 2; r++) {
-                    
-                    // Boundary check to prevent errors at screen edges
-                    if (c >= 0 && c < this.num_cols && r >= 0 && r < this.num_rows) {
-                        let dx = c - center.x;
-                        let dy = r - center.y;
-                        let distance = Math.sqrt(dx * dx + dy * dy);
+    initBaseEnvironment() {
+        // First: Create the land
+        this.generateTwoIslands();
 
-                        // Add a small 'noise' factor to make edges look organic
-                        let organicEdge = distance + (Math.random() * 1.5);
-
-                        if (organicEdge < currentIslandRadius) {
-                            // Convert Wall back to Land (Empty)
-                            this.changeCell(c, r, CellStates.empty, null);
-                        }
-                    }
+        // Second: Populate the land
+        if (this.islandCenters) {
+            for (let center of this.islandCenters) {
+                for (let i = 0; i < 3; i++) { // Spawn a few in each island
+                    this.OriginOfLife(center);
                 }
             }
-        }
-    }
-
-    OriginOfLife() {
-        let spawnPos = null;
-        
-        // Find a random 'empty' cell (land)
-        let attempts = 0;
-        while (!spawnPos && attempts < 1000) {
-            let c = Math.floor(Math.random() * this.grid_map.cols);
-            let r = Math.floor(Math.random() * this.grid_map.rows);
-            if (this.grid_map.cellAt(c, r).state === CellStates.empty) {
-                spawnPos = [c, r];
+        } else {
+            for (let i = 0; i < 5; i++) {
+                this.OriginOfLife();
             }
-            attempts++;
         }
-
-        // Fallback to center if no land found
-        if (!spawnPos) spawnPos = this.grid_map.getCenter();
-
-        var org = new Organism(spawnPos[0], spawnPos[1], this);
-        org.anatomy.addDefaultCell(CellStates.mouth, 0, 0);
-        org.anatomy.addDefaultCell(CellStates.producer, 1, 1);
-        org.anatomy.addDefaultCell(CellStates.producer, -1, -1);
-        this.addOrganism(org);
-        FossilRecord.addSpecies(org, null);
     }
-
 }
 module.exports = WorldEnvironment;
-

@@ -1,6 +1,6 @@
 :root {
     /* Colors */
-    --border:#3a4b68;
+    --border:#4c569c;
     --panel-bg:#e1e3ec;
     --btn: #9099c2;
     --btn-hover: #81d2c7;
@@ -10,7 +10,7 @@
 }
 
 body{
-    background: var(--tab);
+    background: var(--tab); /*where the blue sea is coming from
     margin: 0;
     padding: 0;
     height: 100%;
